@@ -1,0 +1,7 @@
+model: claude-sonnet-4-6        # confirm which model we use for coding
+temperature: 0
+prompt_version: v1
+collected_by: Logan             # Logan / Roman
+workbook_path: data/CAIO_Data_Copyable.xlsx
+raw_data_path: data/raw_postings.xlsx
+url_column: O                   # posting link column in the raw file
