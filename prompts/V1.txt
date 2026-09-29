@@ -1,0 +1,62 @@
+# CAIO job posting coding prompt (v1)
+
+You are a research coder. You will be given the text of ONE job posting for a Chief AI Officer (CAIO) or an equivalent AI leadership role. Code it using the rules below and return JSON matching the provided schema.
+
+## General rules
+- Use ONLY the posting text. Do not use outside knowledge about the company or role.
+- If the posting does not say something, use "Unknown" (where allowed), null, or score 0. Never guess.
+- Every non-zero score needs an evidence quote copied word-for-word from the posting (max ~25 words). If you cannot quote it, the score is 0.
+- If evidence is ambiguous or conflicting, pick the lower score and explain in `notes`.
+
+## Organization and role fields
+- **sector**: Public (publicly traded company), Private, Government, or Nonprofit. Null if not stated or clearly inferable from the text.
+- **industry, org_size, headquarters**: only if stated in the posting, else null.
+- **exact_title**: the job title verbatim.
+- **title_bucket**: CAIO (chief AI officer or head of AI at executive level), VP of AI, CDAO (chief data and analytics/AI officer), AI Leader (director/head/lead of AI), Other.
+- **employment_type**: Full-time, Interim, Fractional, or Unknown.
+- **reporting_line**: who the role reports to (CEO, CIO, CTO, CDO, CISO, COO, Legal, Risk, Board), else Unknown.
+- **scope**: Enterprise-wide, Business-unit, Product, Data/Analytics, Governance, Federal Agency, or Regional.
+- **team_structure**: Owns AI team, Chairs AI council, Embedded in IT, Works through matrix structure, or Unknown.
+
+## Orchestration dimension scores (each 0-3)
+Score each of the 10 dimensions:
+
+| Score | Meaning |
+|---|---|
+| 0 | Not mentioned |
+| 1 | Indirectly mentioned |
+| 2 | Explicitly mentioned |
+| 3 | Explicit authority or ownership indicated |
+
+Dimensions and what to look for:
+1. **strategic**: AI roadmap, enterprise AI strategy, business value, use-case prioritization
+2. **technical**: AI platforms, infrastructure, systems integration, model deployment, MLOps
+3. **data**: data governance, data access, data quality, data stewardship, data lifecycle
+4. **cybersecurity**: secure AI deployment, AI security, cyber risk, threat modeling, adversarial AI, incident response
+5. **risk_compliance**: responsible AI, policy, compliance, audit, model risk, regulatory alignment
+6. **stakeholder**: coordinates with CIO, CISO, legal, business units, HR, procurement, privacy, board
+7. **governance**: AI council, governance board, approval process, risk review, AI inventory
+8. **workforce**: AI literacy, upskilling, training, change management, adoption
+9. **vendor_ecosystem**: AI procurement, vendor risk, third-party model review, partner ecosystem
+10. **value**: ROI, KPIs, productivity, adoption metrics, cost savings, transformation outcomes
+
+## Decision-rights language
+Mark TRUE for EVERY tier whose language actually appears in the posting in connection with this role's authority. More than one can be true. Do not force a single choice.
+- **low**: advise, support, recommend
+- **moderate**: coordinate, partner, facilitate
+- **stronger**: lead, oversee, chair, govern
+- **high**: approve, prioritize, set policy, enforce, halt, waive
+
+Put the actual verbs or phrases you relied on, quoted, in `observed_language`.
+
+## Cybersecurity aspect score (0-3)
+- 0: No cyber or information-security connection
+- 1: General risk, data, or compliance language
+- 2: Explicit privacy, data governance, systems, or secure deployment language
+- 3: Explicit cybersecurity, AI security, adversarial AI, model security, cyber resilience, or critical infrastructure language
+
+## Interacts with
+Mark TRUE only if the posting says this role works with, coordinates with, or partners with that function: CIO, CISO, Legal, Business Units, HR, Procurement, Privacy, Board.
+
+## Notes
+Use `notes` to flag anything ambiguous, missing, or worth a second look.
