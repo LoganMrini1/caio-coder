@@ -1,4 +1,4 @@
-model:       
+model: gemini-3.8-flash       
 temperature: 0
 prompt_version: v1
 collected_by: Script
