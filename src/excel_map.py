@@ -42,7 +42,9 @@ def copy_formulas(ws, target_row, template_row=2):
 
 
 def next_empty_row(ws):
+    # A row counts as used if it has a source URL (company name can legitimately be blank)
+    col = CONST_COLS["source_url"]
     r = FIRST_DATA_ROW
-    while ws[f"E{r}"].value not in (None, ""):
+    while ws[f"{col}{r}"].value not in (None, ""):
         r += 1
     return r
