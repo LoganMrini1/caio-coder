@@ -5,7 +5,7 @@ import os
 
 from google import genai
 from google.genai import types
-from schema import Dimensions, PostingCoding
+from src.schema import Dimensions, PostingCoding
 from dotenv import load_dotenv
 
 load_dotenv()

@@ -1,7 +1,7 @@
-model: gemini-3.8-flash       
+model: gemini-3.5-flash-lite       
 temperature: 0
-prompt_version: v1
-collected_by: Script
+prompt_version: v2
+collected_by: Logan
 workbook_path: 
 raw_data_path: 
 url_column: O                   # posting link column in the raw file

@@ -1,283 +1,265 @@
-"""Run the CAIO coding pipeline from an Excel workbook.
-
-The Excel workbook is automatically converted to data/postings.csv
-before processing, so the entire pipeline can be run with one command.
-
-Examples:
-    python run.py --limit 1 --template data/CAIO_DATA_TEST.xlsx
-    python run.py --limit 5 --template data/CAIO_DATA_TEST.xlsx
-    python run.py --limit 60 --template data/CAIO_DATA.xlsx
-
-Safe to stop and rerun: finished postings are skipped, and raw model
-answers are cached.
-"""
+from __future__ import annotations
 
 import argparse
-import csv
-import json
-import sys
 import hashlib
+import json
 from pathlib import Path
 
+import pandas as pd
 import yaml
-from pydantic import ValidationError
+from dotenv import load_dotenv
 
-# Make src/ importable
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+from src.extract import get_coding
+from src.make_slim import main as make_slim
+from src.validate import validate_coding
+from src.write_excel import prepare_output, write_posting
+from src.schema import PostingCoding
 
-from make_slim import main as make_slim  # noqa: E402
-from derive import derive  # noqa: E402
-from extract import get_coding  # noqa: E402
-from schema import PostingCoding  # noqa: E402
-from validate import validate  # noqa: E402
-from write_excel import existing_urls, open_results, write_row  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent
+
+
+def load_config():
+    with open(ROOT / "config.yaml", "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
 def load_prompt(version: str) -> str:
-    """Find prompts/<version>.* regardless of capitalization or extension."""
-    for p in Path("prompts").iterdir():
-        if p.stem.lower() == version.lower():
-            return p.read_text(encoding="utf-8")
-    return ""
+    prompt_path = ROOT / "prompts" / f"{version}.txt"
+
+    if not prompt_path.exists():
+        prompt_path = ROOT / "prompts" / version / "prompt.txt"
+
+    if not prompt_path.exists():
+        raise FileNotFoundError(
+            f"Could not find prompt for version '{version}'."
+        )
+
+    return prompt_path.read_text(encoding="utf-8")
+
+
+def cache_key(prompt_version: str, prompt_text: str, posting: dict) -> str:
+    payload = {
+        "prompt_version": prompt_version,
+        "prompt": prompt_text,
+        "company": posting.get("company", ""),
+        "title": posting.get("title", ""),
+        "location": posting.get("location", ""),
+        "url": posting.get("url", ""),
+        "description": posting.get("description", ""),
+    }
+
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    return hashlib.sha256(raw).hexdigest()
+
+
+def load_cache(cache_path: Path) -> dict:
+    if not cache_path.exists():
+        return {}
+
+    try:
+        return json.loads(
+            cache_path.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return {}
+
+
+def save_cache(cache_path: Path, cache: dict):
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cache_path.write_text(
+        json.dumps(
+            cache,
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 def main():
-    ap = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser()
 
-    ap.add_argument(
-        "--template",
-        help="path to the CAIO Excel workbook",
-    )
-
-    ap.add_argument(
+    parser.add_argument(
         "--limit",
         type=int,
-        help="only process the first N postings",
+        default=None,
+        help="Only process the first N postings.",
     )
 
-    ap.add_argument(
-        "--fake",
-        action="store_true",
-        help="use made-up AI answers to test the pipeline",
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="Input Excel workbook containing the job descriptions.",
     )
 
-    args = ap.parse_args()
+    parser.add_argument(
+        "--template",
+        default="data/CAIO_URA_Data_Collection copy.xlsx",
+        help="CAIO URA Data Collection workbook to use as the output template.",
+    )
 
-    # Load configuration
-    with open("config.yaml", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
+    args = parser.parse_args()
 
-    version = str(cfg.get("prompt_version") or "v1")
-    collected_by = cfg.get("collected_by") or "Script"
+    load_dotenv(ROOT / ".env")
 
-    # Determine which workbook to use
-    template = args.template or cfg.get("workbook_path")
+    config = load_config()
 
-    if not template or not Path(template).exists():
-        sys.exit(
-            "Need the workbook: pass "
-            "--template data/<your CAIO workbook>.xlsx"
-        )
+    prompt_version = config.get(
+        "prompt_version",
+        "v1",
+    )
 
-    # ---------------------------------------------------------
-    # STEP 1: Convert Excel -> data/postings.csv automatically
-    # ---------------------------------------------------------
+    collected_by = config.get(
+        "collected_by",
+        "Logan",
+    )
 
-    print(f"Reading Excel workbook: {template}")
+    prompt_text = load_prompt(prompt_version)
 
-    try:
-        make_slim(template)
-    except Exception as e:
-        sys.exit(f"Could not create postings.csv from Excel file: {e}")
-
-    csv_path = Path("data/postings.csv")
-
-    if not csv_path.exists():
-        sys.exit("data/postings.csv was not created.")
-
-    # ---------------------------------------------------------
-    # STEP 2: Load the system prompt
-    # ---------------------------------------------------------
-
-    system_prompt = load_prompt(version)
-
-    if not system_prompt and not args.fake:
-        sys.exit(
-            f"No prompt file found for version '{version}' in prompts/."
-        )
-
-    # ---------------------------------------------------------
-    # STEP 3: Set up output and cache
-    # ---------------------------------------------------------
-
-    tag = version + ("_fake" if args.fake else "")
-
-    out_path = f"output/results_{tag}.xlsx"
-
-    cache_dir = Path("cache") / tag
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    Path("output").mkdir(exist_ok=True)
-
-    # ---------------------------------------------------------
-    # STEP 4: Read the slim CSV
-    # ---------------------------------------------------------
-
-    with open(csv_path, encoding="utf-8-sig", newline="") as f:
-        postings = list(csv.DictReader(f))
-
-    if args.limit:
-        postings = postings[: args.limit]
-
-    print(f"Processing {len(postings)} posting(s)...")
+    print("=" * 60)
+    print("CAIO CODING PIPELINE")
+    print("=" * 60)
+    print(f"Prompt version: {prompt_version}")
+    print(f"Collected by:   {collected_by}")
+    print(f"Input:          {args.input}")
+    print(f"Template:       {args.template}")
     print()
 
-    # ---------------------------------------------------------
-    # STEP 5: Open output workbook
-    # ---------------------------------------------------------
+    print("Reading job descriptions from input Excel...")
 
-    wb, ws = open_results(template, out_path)
+    make_slim(args.input)
 
-    done = existing_urls(ws)
+    postings_path = ROOT / "data" / "postings.csv"
 
-    written = 0
-    skipped = 0
-    failed = 0
-    flagged = 0
-
-    err_log = Path("output") / f"errors_{tag}.log"
-
-    # ---------------------------------------------------------
-    # STEP 6: Process each posting
-    # ---------------------------------------------------------
-
-    for i, posting in enumerate(postings, 1):
-
-        url = posting["url"]
-
-        label = (
-            f"[{i}/{len(postings)}] "
-            f"{posting['company'][:30]} | "
-            f"{posting['title'][:40]}"
+    if not postings_path.exists():
+        raise FileNotFoundError(
+            f"Expected {postings_path} after make_slim()."
         )
 
-        # Skip postings already written to the output workbook
-        if url in done:
-            skipped += 1
-            print(f"{label} -> SKIPPED (already completed)")
-            continue
-
-        try:
-            # Cache file is based on posting URL
-            cache_file = (
-                cache_dir
-                / (hashlib.sha1(url.encode()).hexdigest() + ".json")
-            )
-
-            # Use cached AI result if available
-            if cache_file.exists():
-
-                raw = json.loads(
-                    cache_file.read_text(encoding="utf-8")
-                )
-
-                print(f"{label} -> using cached result")
-
-            else:
-
-                # Real Gemini call happens here
-                raw = get_coding(
-                    posting,
-                    system_prompt,
-                    cfg,
-                    fake=args.fake,
-                )
-
-                # Save raw result so we don't have to pay for it again
-                cache_file.write_text(
-                    json.dumps(raw, indent=1),
-                    encoding="utf-8",
-                )
-
-            # Validate against Pydantic schema
-            coding = PostingCoding.model_validate(raw)
-
-            # Validate evidence against the actual posting text
-            flags = validate(
-                coding,
-                posting["description"],
-            )
-
-            # Calculate derived fields
-            derived = derive(coding)
-
-            # Write result to Excel
-            write_row(
-                ws,
-                posting,
-                coding,
-                derived,
-                flags,
-                collected_by,
-            )
-
-            written += 1
-            flagged += bool(flags)
-
-            print(
-                f"{label} -> {derived.level_name}"
-                + (
-                    f"  ({len(flags)} flag(s))"
-                    if flags
-                    else ""
-                )
-            )
-
-            # Save periodically
-            if written % 10 == 0:
-                wb.save(out_path)
-
-        except NotImplementedError as e:
-
-            wb.save(out_path)
-            sys.exit(str(e))
-
-        except (ValidationError, Exception) as e:
-
-            failed += 1
-
-            print(
-                f"{label} -> FAILED: {str(e)[:200]}"
-            )
-
-            with open(err_log, "a", encoding="utf-8") as f:
-                f.write(
-                    f"{url}\n"
-                    f"{e}\n\n"
-                )
-
-    # ---------------------------------------------------------
-    # STEP 7: Save final workbook
-    # ---------------------------------------------------------
-
-    try:
-        wb.save(out_path)
-
-    except PermissionError:
-        sys.exit(
-            f"Could not save {out_path}. "
-            "Close it in Excel and rerun."
-        )
-
-    print()
-    print(
-        f"Done. written={written} "
-        f"skipped={skipped} "
-        f"failed={failed} "
-        f"with_flags={flagged}"
+    postings = pd.read_csv(
+        postings_path
     )
 
-    print(f"Results: {out_path}")
+    if args.limit is not None:
+        postings = postings.head(args.limit)
+
+    if len(postings) == 0:
+        raise ValueError(
+            "No postings were found in the input workbook."
+        )
+
+    output_dir = ROOT / "output"
+    output_dir.mkdir(exist_ok=True)
+
+    output_path = (
+        output_dir
+        / f"CAIO_URA_results_{prompt_version}.xlsx"
+    )
+
+    print()
+    print("Creating fresh output workbook...")
+
+    prepare_output(
+        args.template,
+        output_path,
+    )
+
+    cache_path = (
+        ROOT
+        / "cache"
+        / "extractions.json"
+    )
+
+    cache = load_cache(cache_path)
+
+    processed = 0
+
+    for _, row in postings.iterrows():
+
+        posting = row.to_dict()
+
+        company = posting.get(
+            "company",
+            "Unknown company",
+        )
+
+        title = posting.get(
+            "title",
+            "Unknown title",
+        )
+
+        print(
+            f"[{processed + 1}/{len(postings)}] "
+            f"{company} — {title}"
+        )
+
+        key = cache_key(
+            prompt_version,
+            prompt_text,
+            posting,
+        )
+
+        if key in cache:
+            print("  Using cached Gemini result.")
+            coding_dict = cache[key]
+
+        else:
+            print("  Sending posting text to Gemini...")
+
+            coding_dict = get_coding(
+                posting=posting,
+                system_prompt=prompt_text,
+                cfg=config,
+                fake=False,
+            )
+
+            cache[key] = coding_dict
+
+            save_cache(
+                cache_path,
+                cache,
+            )
+
+        coding = PostingCoding.model_validate(
+            coding_dict
+        )
+
+        errors = validate_coding(coding)
+
+        if errors:
+            print("  WARNING: validation issues:")
+
+            for error in errors:
+                print(f"    - {error}")
+
+        excel_row = 3 + processed
+
+        write_posting(
+            output_path=output_path,
+            row_num=excel_row,
+            posting=posting,
+            coding=coding,
+            collected_by=collected_by,
+        )
+
+        print(
+            f"  Wrote to CAIO Data row {excel_row}."
+        )
+
+        processed += 1
+
+    print()
+    print("=" * 60)
+    print(f"Finished. Processed {processed} posting(s).")
+    print(f"Output: {output_path}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
