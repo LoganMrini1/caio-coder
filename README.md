@@ -48,6 +48,6 @@ flowchart LR
 - [x] Slim postings file builder
 - [x] Validation, derived fields, Excel writer, resumable runner
 - [x] End-to-end test with fake AI answers
-- [ ] Real AI call in `src/extract.py` (waiting on API key and provider)
+- [x] Real AI call in `src/extract.py` (waiting on API key and provider)
+- [x] Full-dataset run
 - [ ] Iterate on the prompt (v2, v3, ...) using real results
-- [ ] Full-dataset run
