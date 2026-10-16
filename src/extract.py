@@ -1,4 +1,4 @@
-"""Get structured coding for one posting using Gemini."""
+"""Get structured coding for one posting using Gemini, Anthropic, or OpenAI."""
 
 import hashlib
 import os
@@ -20,9 +20,20 @@ def build_user_message(posting: dict) -> str:
     )
 
 
-def get_coding(posting: dict, system_prompt: str, cfg: dict, fake: bool = False) -> dict:
+def get_coding(
+    posting: dict,
+    system_prompt: str,
+    cfg: dict,
+    fake: bool = False,
+    provider: str = "gemini",
+) -> dict:
     if fake:
         return _fake(posting)
+
+    if provider == "anthropic":
+        return _anthropic_coding(posting, system_prompt, cfg)
+    if provider == "openai":
+        return _openai_coding(posting, system_prompt, cfg)
 
     # Get API key from environment
     api_key = os.getenv("GEMINI_API_KEY")
@@ -58,6 +69,63 @@ def get_coding(posting: dict, system_prompt: str, cfg: dict, fake: bool = False)
     result = PostingCoding.model_validate_json(response.text)
 
     return result.model_dump()
+
+
+def _anthropic_coding(posting: dict, system_prompt: str, cfg: dict) -> dict:
+    import anthropic
+
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is not set. Add it to your .env file."
+        )
+
+    client = anthropic.Anthropic()
+
+    # Structured output: the response is validated against PostingCoding.
+    # Server-side fallback re-runs the request on another model if the
+    # primary one declines it.
+    response = client.beta.messages.parse(
+        model=cfg.get("anthropic_model", "claude-opus-5-5"),
+        max_tokens=16000,
+        system=system_prompt,
+        messages=[{"role": "user", "content": build_user_message(posting)}],
+        output_format=PostingCoding,
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+    )
+
+    if response.stop_reason == "refusal":
+        raise RuntimeError("Anthropic declined to code this posting.")
+    if response.parsed_output is None:
+        raise RuntimeError(
+            f"Anthropic returned no parsable output (stop_reason={response.stop_reason})."
+        )
+
+    return response.parsed_output.model_dump()
+
+
+def _openai_coding(posting: dict, system_prompt: str, cfg: dict) -> dict:
+    from openai import OpenAI
+
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set. Add it to your .env file."
+        )
+
+    client = OpenAI()
+
+    # Structured output: the response is validated against PostingCoding.
+    response = client.responses.parse(
+        model=cfg.get("openai_model", "gpt-5.5"),
+        instructions=system_prompt,
+        input=build_user_message(posting),
+        text_format=PostingCoding,
+    )
+
+    if response.output_parsed is None:
+        raise RuntimeError("OpenAI returned no parsable output.")
+
+    return response.output_parsed.model_dump()
 
 
 def _fake(posting: dict) -> dict:
