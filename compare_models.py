@@ -179,6 +179,9 @@ def restructure_validation_sheet(wb):
 
         # match column: Manual vs Gemini (the old formulas pointed at the wrong cells)
         m, g = get_column_letter(new_manual), get_column_letter(new_manual + 1)
+        for r in range(1, last_row + 1):  # keep the gray look of the old match column
+            _copy_cell(old.cell(r, old_manual + 2), new.cell(r, new_manual + 4))
+            new.cell(r, new_manual + 4).value = None
         for r in range(2, last_row + 1):
             if old.cell(r, 1).value:
                 new.cell(r, new_manual + 4).value = f'=IF({m}{r}={g}{r},"Y","N")'
@@ -196,6 +199,9 @@ def restructure_validation_sheet(wb):
             old.column_dimensions[get_column_letter(old_tail + k)].width
         )
 
+    for r, dim in old.row_dimensions.items():
+        if dim.height:
+            new.row_dimensions[r].height = dim.height
     new.freeze_panes = old.freeze_panes
     wb.remove(old)
     new.title = VAL_SHEET
@@ -293,37 +299,53 @@ def write_results_sheet(wb, stats: dict):
     for col, name in zip("BCDE", ["Exact Matches", "Mismatches", "Exact Match Rate", "Pearson r"]):
         ws[f"{col}1"] = f"{name} (Gemini)"
 
-    # clear the old summary block in H:I
-    for r in (2, 3):
-        ws[f"H{r}"] = None
-        ws[f"I{r}"] = None
+    last = max(r for r in range(2, ws.max_row + 1) if ws.cell(r, 1).value)
+
+    # The old summary block sat in H2:I3. Keep its look for the new summary in O:R.
+    if ws["H2"].value == "Average Exact Match Rate":
+        label_style, value_style = copy(ws["H2"]._style), copy(ws["I2"]._style)
+    else:
+        label_style, value_style = copy(ws["O2"]._style), copy(ws["P2"]._style)
 
     blocks = {"anthropic": "F", "openai": "J"}
     for which, start in blocks.items():
         label = PROVIDERS[which]
         first = ord(start) - ord("A") + 1
         for k, name in enumerate(["Exact Matches", "Mismatches", "Exact Match Rate", "Pearson r"]):
-            cell = ws.cell(1, first + k, f"{name} ({label})")
-            _copy_style(header_style, cell)
+            ws.cell(1, first + k, f"{name} ({label})")
             ws.column_dimensions[get_column_letter(first + k)].width = 20
 
-        for r in range(2, ws.max_row + 1):
+        for r in range(1, ws.max_row + 1):
             var = ws.cell(r, 1).value
-            s = stats.get(var, {}).get(which) if var else None
+            s = stats.get(var, {}).get(which) if var and r > 1 else None
             for k in range(4):
-                ws.cell(r, first + k).value = None if s is None else s[k]
-            ws.cell(r, first + 2).number_format = ws.cell(r, 4).number_format
+                cell = ws.cell(r, first + k)
+                cell._style = copy(ws.cell(r, 2 + k)._style)  # same look as the Gemini B:E block
+                if r > 1:
+                    cell.value = None if s is None or (r > last) else s[k]
+
+        # same "> 80%" green highlight the Gemini rate / r columns have
+        rng = f"{get_column_letter(first + 2)}2:{get_column_letter(first + 3)}{last}"
+        if rng not in {str(cf.sqref) for cf in ws.conditional_formatting}:
+            for cf in list(ws.conditional_formatting):
+                if str(cf.sqref).startswith("D2:"):
+                    for rule in cf.rules:
+                        ws.conditional_formatting.add(rng, copy(rule))
 
     # summary: averages for all three models
-    last = max(r for r in range(2, ws.max_row + 1) if ws.cell(r, 1).value)
     ws["O1"], ws["P1"], ws["Q1"], ws["R1"] = "Summary", "Gemini", "Anthropic", "GPT"
     for col in "OPQR":
-        _copy_style(header_style, ws[f"{col}1"])
+        ws[f"{col}1"]._style = copy(header_style._style)
     ws["O2"], ws["O3"] = "Average Exact Match Rate", "Average Pearson r correlation"
+    for r in (2, 3):
+        ws[f"O{r}"]._style = copy(label_style)
     for col, rate_col, r_col in (("P", "D", "E"), ("Q", "H", "I"), ("R", "L", "M")):
         ws[f"{col}2"] = f"=AVERAGE({rate_col}2:{rate_col}{last})"
         ws[f"{col}3"] = f"=AVERAGE({r_col}2:{r_col}{last})"
-    ws.column_dimensions["O"].width = 30
+        for r in (2, 3):
+            ws[f"{col}{r}"]._style = copy(value_style)
+    ws.column_dimensions["O"].width = ws.column_dimensions["H"].width or 30
+    ws.column_dimensions["H"].width = 20
 
 
 def _copy_style(src, dst):
