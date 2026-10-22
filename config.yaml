@@ -1,7 +1,8 @@
-model: gemini-3.5-flash-lite       
+provider: anthropic
+model: claude-sonnet-5-5
 temperature: 0
 prompt_version: v2
 collected_by: Logan
-workbook_path: 
-raw_data_path: 
-url_column: O                   # posting link column in the raw file
+workbook_path: ""
+raw_data_path: ""
+url_column: O

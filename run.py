@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import argparse
@@ -21,7 +22,7 @@ ROOT = Path(__file__).resolve().parent
 
 def load_config():
     with open(ROOT / "config.yaml", "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
 
 
 def load_prompt(version: str) -> str:
@@ -38,8 +39,16 @@ def load_prompt(version: str) -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
-def cache_key(prompt_version: str, prompt_text: str, posting: dict) -> str:
+def cache_key(
+    prompt_version: str,
+    prompt_text: str,
+    posting: dict,
+    provider: str,
+    model: str,
+) -> str:
     payload = {
+        "provider": provider,
+        "model": model,
         "prompt_version": prompt_version,
         "prompt": prompt_text,
         "company": posting.get("company", ""),
@@ -66,7 +75,7 @@ def load_cache(cache_path: Path) -> dict:
         return json.loads(
             cache_path.read_text(encoding="utf-8")
         )
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         return {}
 
 
@@ -111,21 +120,29 @@ def main():
 
     config = load_config()
 
-    prompt_version = config.get(
-        "prompt_version",
-        "v1",
-    )
+    prompt_version = config.get("prompt_version", "v1")
+    collected_by = config.get("collected_by", "Logan")
+    provider = config.get("provider", "gemini").strip().lower()
+    model = config.get("model", "").strip()
 
-    collected_by = config.get(
-        "collected_by",
-        "Logan",
-    )
+    if not model:
+        raise ValueError(
+            "No model is configured in config.yaml."
+        )
+
+    if provider not in {"anthropic", "gemini"}:
+        raise ValueError(
+            f"Unsupported provider '{provider}'. "
+            "Set provider to 'anthropic' or 'gemini' in config.yaml."
+        )
 
     prompt_text = load_prompt(prompt_version)
 
     print("=" * 60)
     print("CAIO CODING PIPELINE")
     print("=" * 60)
+    print(f"Provider:       {provider}")
+    print(f"Model:          {model}")
     print(f"Prompt version: {prompt_version}")
     print(f"Collected by:   {collected_by}")
     print(f"Input:          {args.input}")
@@ -143,11 +160,11 @@ def main():
             f"Expected {postings_path} after make_slim()."
         )
 
-    postings = pd.read_csv(
-        postings_path
-    )
+    postings = pd.read_csv(postings_path)
 
     if args.limit is not None:
+        if args.limit < 1:
+            raise ValueError("--limit must be at least 1.")
         postings = postings.head(args.limit)
 
     if len(postings) == 0:
@@ -171,29 +188,16 @@ def main():
         output_path,
     )
 
-    cache_path = (
-        ROOT
-        / "cache"
-        / "extractions.json"
-    )
-
+    cache_path = ROOT / "cache" / "extractions.json"
     cache = load_cache(cache_path)
 
     processed = 0
 
     for _, row in postings.iterrows():
-
         posting = row.to_dict()
 
-        company = posting.get(
-            "company",
-            "Unknown company",
-        )
-
-        title = posting.get(
-            "title",
-            "Unknown title",
-        )
+        company = posting.get("company", "Unknown company")
+        title = posting.get("title", "Unknown title")
 
         print(
             f"[{processed + 1}/{len(postings)}] "
@@ -201,17 +205,19 @@ def main():
         )
 
         key = cache_key(
-            prompt_version,
-            prompt_text,
-            posting,
+            prompt_version=prompt_version,
+            prompt_text=prompt_text,
+            posting=posting,
+            provider=provider,
+            model=model,
         )
 
         if key in cache:
-            print("  Using cached Gemini result.")
+            print(f"  Using cached {provider} result.")
             coding_dict = cache[key]
 
         else:
-            print("  Sending posting text to Gemini...")
+            print(f"  Sending posting text to {provider}...")
 
             coding_dict = get_coding(
                 posting=posting,
@@ -220,22 +226,19 @@ def main():
                 fake=False,
             )
 
-            cache[key] = coding_dict
+            # Validate before caching so failed or malformed results
+            # are not saved as successful extractions.
+            coding = PostingCoding.model_validate(coding_dict)
 
-            save_cache(
-                cache_path,
-                cache,
-            )
+            cache[key] = coding.model_dump()
+            save_cache(cache_path, cache)
 
-        coding = PostingCoding.model_validate(
-            coding_dict
-        )
+        coding = PostingCoding.model_validate(coding_dict)
 
         errors = validate_coding(coding)
 
         if errors:
             print("  WARNING: validation issues:")
-
             for error in errors:
                 print(f"    - {error}")
 

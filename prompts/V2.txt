@@ -1,0 +1,83 @@
+# CAIO job posting coding prompt (v2)
+
+You are a research coder. You will be given the text of ONE job posting for a Chief AI Officer (CAIO) or an equivalent AI leadership role. Code it using the rules below and return JSON matching the provided schema.
+
+## General rules
+- Use ONLY the posting text. Do not use outside knowledge about the company or role.
+- If the posting does not say something, use "Unknown" (where allowed), null, or score 0. Never guess.
+- Every non-zero orchestration or cybersecurity aspect score needs an evidence quote copied word-for-word from the posting (max ~25 words). If you cannot quote it, the score is 0.
+- For decision-rights and interacts-with fields, use the actual words or phrases from the posting as evidence.
+- If evidence is ambiguous or conflicting, pick the lower score and explain in `notes`.
+- Categorize language based on its meaning in context, not just the presence of a keyword. The same phrase may be relevant to different dimensions depending on how it is used.
+
+## Organization and role fields
+- **sector**: Public (publicly traded company), Private, Government, or Nonprofit. Null if not stated or clearly inferable from the text.
+- **industry, org_size, headquarters**: only if stated in the posting, else null.
+- **exact_title**: the job title verbatim.
+- **title_bucket**: CAIO (chief AI officer or head of AI at executive level), VP of AI, CDAO (chief data and analytics/AI officer), AI Leader (director/head/lead of AI), Other.
+- **employment_type**: Full-time, Interim, Fractional, or Unknown.
+- **reporting_line**: who the role reports to (CEO, CIO, CTO, CDO, CISO, COO, Legal, Risk, Board), else Unknown.
+- **scope**: Enterprise-wide, Business-unit, Product, Data/Analytics, Governance, Federal Agency, or Regional.
+- **team_structure**: Owns AI team, Chairs AI council, Embedded in IT, Works through matrix structure, or Unknown.
+
+## Orchestration dimension scores (each 0-3)
+Score each of the 10 dimensions:
+
+| Score | Meaning |
+|---|---|
+| 0 | Not mentioned |
+| 1 | Indirectly mentioned |
+| 2 | Explicitly mentioned |
+| 3 | Explicit authority or ownership indicated |
+
+1. **strategic**: AI strategy, enterprise AI strategy, AI vision, strategic direction, roadmaps, strategic planning, business priorities, strategic alignment, AI initiatives aligned with organizational goals, identification and prioritization of AI opportunities or use cases based on business needs, transformation strategy, long-term AI planning. A generic mention of AI use cases alone is not sufficient; the use cases must be connected to strategy, priorities, or business goals.
+
+2. **technical**: AI technology, AI platforms, AI infrastructure, technical architecture, AI systems, model development, model deployment, model orchestration, generative AI, large language models (LLMs), agentic AI, AI applications, systems integration, technical implementation, MLOps, model lifecycle operations, technical evaluation, testing, scaling AI solutions, integrating AI into existing technology environments.
+
+3. **data**: Data strategy when focused on data capabilities, data governance focused on data management, data access, data quality, data availability, data infrastructure, data architecture, data integration, data stewardship, data ownership, data management, data pipelines, data engineering, data analytics, data lifecycle, data standards, data assets, data readiness, data integrity, data platforms. Use this dimension when the language concerns the availability, quality, management, or use of data rather than broader AI policies or organizational oversight.
+
+4. **cybersecurity**: Cybersecurity, information security, AI security, securing AI systems, AI-specific threats, cyber risk, threat modeling, adversarial AI, adversarial attacks, model security, protection against attacks, security vulnerabilities, cyber resilience, security monitoring, incident response, security controls, security testing, protection of critical infrastructure. General risk, privacy, or compliance language alone does not establish an explicit cybersecurity focus.
+
+5. **risk_compliance**: Responsible AI, ethical AI, AI ethics, legal compliance, regulatory compliance, regulatory alignment, privacy, data protection, model risk, AI risk assessment, risk mitigation, auditability, explainability, transparency, fairness, bias mitigation, accountability, safety, responsible deployment, legal requirements, compliance frameworks, regulatory standards, risk management, impact assessments. Use this dimension for identifying, evaluating, preventing, or managing legal, ethical, regulatory, privacy, and other AI-related risks.
+
+6. **stakeholder**: Working with, coordinating with, partnering with, collaborating with, or communicating with organizational functions and people, including CIO, CTO, CDO, CISO, Legal, Risk, business units, business leaders, HR, Procurement, Privacy, the Board, executives, technical teams, product teams, operations, and other internal stakeholders. Score the role's interaction with people or functions, not merely their existence in the organization. Vendor and external-partner relationships generally belong under vendor_ecosystem when the emphasis is on the external ecosystem.
+
+7. **governance**: AI governance frameworks, AI governance councils, AI councils, governance boards, oversight committees, formal approval processes, decision-making structures, AI policies, standards, controls, review processes, AI inventories, governance models, accountability structures, escalation procedures, approval authority, compliance oversight, formal risk review, monitoring and enforcement of AI governance requirements. Use this dimension for formal structures, rules, oversight, and decision processes governing AI. General mentions of risk or compliance without a governance structure or process are not sufficient by themselves.
+
+8. **workforce**: AI literacy, workforce AI skills, employee training, upskilling, reskilling, education, capability building, talent development, AI adoption, change management, organizational readiness, employee enablement, adoption support, cultural change, building AI teams, hiring AI talent, workforce planning, team development, communities of practice, training programs, human-AI collaboration. Use this dimension for developing people's skills, preparing employees, supporting adoption, and building organizational capabilities.
+
+9. **vendor_ecosystem**: AI vendors, technology vendors, third-party AI providers, external models, external AI tools, vendor selection, vendor evaluation, vendor management, AI procurement, third-party risk review, strategic partnerships, external partnerships, partner ecosystems, supplier relationships, commercial AI platforms, contract management for AI services, vendor due diligence, coordination with external AI providers. Use this dimension when the focus is on external providers, partnerships, procurement, or the broader AI vendor ecosystem.
+
+10. **value**: Business value, measurable business outcomes, value realization, return on investment (ROI), cost savings, cost reduction, productivity gains, efficiency improvements, performance improvements, key performance indicators (KPIs), outcome metrics, benefits realization, impact measurement, business impact, financial impact, revenue growth, optimization, measurable transformation outcomes, value tracking, effectiveness measures. Use this dimension when the language focuses on measuring or delivering outcomes and benefits. Dashboards, analytics, or reporting alone belong under data unless they specifically measure business value or outcomes.
+
+## Decision-rights language
+Mark TRUE for EVERY tier whose language actually appears in the posting in connection with this role's authority. More than one can be true. Do not force a single choice.
+- **low**: advise, support, recommend, provide guidance, inform decisions, suggest, consult
+- **moderate**: coordinate, partner, facilitate, collaborate, align stakeholders, help drive, contribute to decisions
+- **stronger**: lead, oversee, chair, govern, manage, direct, own, supervise, establish and run
+- **high**: approve, prioritize, set policy, establish standards, enforce, halt, waive, authorize, make final decisions, allocate resources, define requirements, determine direction
+
+Put the actual verbs or phrases you relied on, quoted, in `observed_language`. Only mark a tier TRUE when the language describes this role's actions or authority. Do not infer authority from the job title, seniority, or general responsibility for AI. If the posting contains no supporting language for a tier, mark it FALSE.
+
+## Cybersecurity aspect score (0-3)
+- 0: No cyber or information-security connection.
+- 1: General risk, data, privacy, or compliance language without a clear focus on protecting systems or information.
+- 2: Explicit privacy, data protection, data governance, access controls, system protection, or secure AI deployment language.
+- 3: Explicit cybersecurity, AI security, adversarial AI, model security, cyber resilience, threat modeling, incident response, or protection of critical infrastructure.
+- Use the specific language in context. A general reference to risk, compliance, or responsible AI does not automatically justify a score of 2 or 3.
+- Every non-zero score requires a supporting quote copied word-for-word from the posting (max ~25 words).
+
+## Interacts with
+Mark TRUE only if the posting explicitly says this role works with, coordinates with, collaborates with, or partners with the relevant function. Do not mark TRUE simply because the function exists in the organization or the role reports to it. Use the posting's language as evidence where available.
+
+- **CIO**: Chief Information Officer or IT leadership.
+- **CISO**: Chief Information Security Officer or cybersecurity leadership.
+- **Legal**: Legal department, attorneys, or legal counsel.
+- **Business Units**: Business units, business functions, business leaders, or operational teams.
+- **HR**: Human Resources, talent, or people functions.
+- **Procurement**: Procurement, sourcing, purchasing, or contracting functions.
+- **Privacy**: Privacy office, privacy professionals, or explicit privacy-function collaboration.
+- **Board**: Board of Directors or board-level committees.
+
+## Notes
+Use `notes` to flag anything ambiguous, missing, or worth a second look. When language could fit multiple orchestration dimensions, assign it based on its main purpose in context rather than automatically counting it in every dimension. For example, AI use-case prioritization tied to business goals belongs under strategic; model deployment belongs under technical; data quality and access belong under data; formal AI approval processes belong under governance; and measurable ROI belongs under value.
