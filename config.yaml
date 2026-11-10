@@ -1,7 +1,7 @@
 provider: anthropic
 model: claude-sonnet-5-5
 temperature: 0
-prompt_version: v3
+prompt_version: v4
 collected_by: Logan
 workbook_path: ""
 raw_data_path: ""
