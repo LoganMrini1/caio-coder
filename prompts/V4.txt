@@ -90,3 +90,39 @@ QUALITY AND CONSISTENCY CHECKS (perform before returning response)
 - If a posting is a recruiter listing, record recruiter and end-employer separately; do not assume the client employer's identity.
 - Emit STRICT JSON according to the API response schema supplied by the calling code. No Markdown, commentary, outside citations, or extra keys. Include exact text and PDF page number where identifiable.
 - Treat researcher calibration examples as interpretation guides. Do not peek at or force matching reference scores in any external benchmark file. The objective is independent, reproducible coding, with differences available for adjudication.
+
+## Consolidated Dimension Evidence Output
+
+For each of the ten orchestration dimensions, continue to independently evaluate the dimension, assign its score, identify supporting verbatim evidence, and provide the required explanation, confidence level, and human-review flag according to all preceding instructions.
+
+Instead of returning separate evidence, explanation, confidence, and review fields for each dimension, consolidate all ten dimensions' information into ONE text field named `source_quote_notes`.
+
+Organize the field in the following order, using a clearly labeled subsection for each dimension:
+
+1. Strategic
+2. Technical
+3. Data
+4. Cybersecurity
+5. Risk/Compliance
+6. Stakeholder
+7. Governance
+8. Workforce
+9. Vendor/Ecosystem
+10. Value
+
+For each dimension, include:
+- Score (0–3)
+- Supporting verbatim quotation(s), if applicable
+- Explanation of the assigned score
+- Confidence level
+- Human-review flag
+
+For a score of 0, explicitly indicate that no qualifying evidence was identified and explain why any potentially related language did not qualify.
+
+For a nonzero score, preserve the exact supporting quotation and the explanation required by the original scoring instructions.
+
+Do not omit, shorten, or relax any evidence, explanation, confidence, or review requirements simply because the information is consolidated into one field.
+
+All other scoring instructions, definitions, calibration precedents, and decision-rights requirements remain unchanged.
+
+Return the consolidated information as a single string in the `source_quote_notes` JSON field.
